@@ -8,7 +8,7 @@ understand how to use Wire. The finished product may be found in the same
 directory as this README.
 
 [guestbook]: https://github.com/google/go-cloud/tree/master/samples/guestbook
-[guide]:     https://github.com/google/wire/blob/master/docs/guide.md
+[guide]: https://github.com/google/wire/blob/master/docs/guide.md
 
 ## A First Pass of Building the Greeter Program
 
@@ -19,7 +19,7 @@ To start, we will create three types: 1) a message for a greeter, 2) a greeter
 who conveys that message, and 3) an event that starts with the greeter greeting
 guests. In this design, we have three `struct` types:
 
-``` go
+```go
 type Message string
 
 type Greeter struct {
@@ -34,7 +34,7 @@ type Event struct {
 The `Message` type just wraps a string. For now, we will create a simple
 initializer that always returns a hard-coded message:
 
-``` go
+```go
 func NewMessage() Message {
     return Message("Hi there!")
 }
@@ -43,7 +43,7 @@ func NewMessage() Message {
 Our `Greeter` will need reference to the `Message`. So let's create an
 initializer for our `Greeter` as well.
 
-``` go
+```go
 func NewGreeter(m Message) Greeter {
     return Greeter{Message: m}
 }
@@ -56,7 +56,7 @@ type Greeter struct {
 In the initializer we assign a `Message` field to `Greeter`. Now, we can use the
 `Message` when we create a `Greet` method on `Greeter`:
 
-``` go
+```go
 func (g Greeter) Greet() Message {
     return g.Message
 }
@@ -65,7 +65,7 @@ func (g Greeter) Greet() Message {
 Next, we need our `Event` to have a `Greeter`, so we will create an initializer
 for it as well.
 
-``` go
+```go
 func NewEvent(g Greeter) Event {
     return Event{Greeter: g}
 }
@@ -77,7 +77,7 @@ type Event struct {
 
 Then we add a method to start the `Event`:
 
-``` go
+```go
 func (e Event) Start() {
     msg := e.Greeter.Greet()
     fmt.Println(msg)
@@ -91,7 +91,7 @@ Now that we have all the components of our application ready, let's see what it
 takes to initialize all the components without using Wire. Our main function
 would look like this:
 
-``` go
+```go
 func main() {
     message := NewMessage()
     greeter := NewGreeter(message)
@@ -120,7 +120,7 @@ components smoother.
 
 Let's start by changing our `main` function to look like this:
 
-``` go
+```go
 func main() {
     e := InitializeEvent()
 
@@ -131,7 +131,7 @@ func main() {
 Next, in a separate file called `wire.go` we will define `InitializeEvent`.
 This is where things get interesting:
 
-``` go
+```go
 // wire.go
 
 func InitializeEvent() Event {
@@ -150,7 +150,7 @@ provide information about which providers to use to construct an `Event` and so
 we will exclude it from our final binary with a build constraint at the top of
 the file:
 
-``` go
+```go
 //+build wireinject
 
 ```
@@ -162,8 +162,8 @@ injector complete, we are ready to use the `wire` command line tool.
 
 Install the tool with:
 
-``` shell
-go install github.com/google/wire/cmd/wire@latest
+```shell
+go install github.com/verystar/wire/cmd/wire@latest
 ```
 
 Then in the same directory with the above code, simply run `wire`. Wire will
@@ -173,7 +173,7 @@ written to a file named `wire_gen.go`.
 
 Let's take a look at what Wire did for us:
 
-``` go
+```go
 // wire_gen.go
 
 func InitializeEvent() Event {
@@ -196,7 +196,7 @@ Wire, we will commit both `wire.go` and `wire_gen.go` to source control.
 To show a small part of how Wire handles more complex setups, let's refactor
 our initializer for `Event` to return an error and see what happens.
 
-``` go
+```go
 func NewEvent(g Greeter) (Event, error) {
     if g.Grumpy {
         return Event{}, errors.New("could not create event: event greeter is grumpy")
@@ -208,7 +208,7 @@ func NewEvent(g Greeter) (Event, error) {
 We'll say that sometimes a `Greeter` might be grumpy and so we cannot create
 an `Event`. The `NewGreeter` initializer now looks like this:
 
-``` go
+```go
 func NewGreeter(m Message) Greeter {
     var grumpy bool
     if time.Now().Unix()%2 == 0 {
@@ -224,7 +224,7 @@ create a grumpy greeter instead of a friendly one.
 
 The `Greet` method then becomes:
 
-``` go
+```go
 func (g Greeter) Greet() Message {
     if g.Grumpy {
         return Message("Go away!")
@@ -237,7 +237,7 @@ Now you see how a grumpy `Greeter` is no good for an `Event`. So `NewEvent` may
 fail. Our `main` must now take into account that `InitializeEvent` may in fact
 fail:
 
-``` go
+```go
 func main() {
     e, err := InitializeEvent()
     if err != nil {
@@ -250,7 +250,7 @@ func main() {
 
 We also need to update `InitializeEvent` to add an `error` type to the return value:
 
-``` go
+```go
 // wire.go
 
 func InitializeEvent() (Event, error) {
@@ -264,7 +264,7 @@ that after running `wire` once to produce a `wire_gen.go` file, we may also use
 `go generate`. Having run the command, our `wire_gen.go` file looks like
 this:
 
-``` go
+```go
 // wire_gen.go
 
 func InitializeEvent() (Event, error) {
@@ -290,7 +290,7 @@ signature of the injector. Presently, we have hard-coded the message inside
 message however they see fit. So let's change `InitializeEvent` to look like
 this:
 
-``` go
+```go
 func InitializeEvent(phrase string) (Event, error) {
     wire.Build(NewEvent, NewGreeter, NewMessage)
     return Event{}, nil
@@ -300,7 +300,7 @@ func InitializeEvent(phrase string) (Event, error) {
 Now `InitializeEvent` allows callers to pass in the `phrase` for a `Greeter` to
 use. We also add a `phrase` argument to `NewMessage`:
 
-``` go
+```go
 func NewMessage(phrase string) Message {
     return Message(phrase)
 }
@@ -310,7 +310,7 @@ After we run `wire` again, we will see that the tool has generated an
 initializer which passes the `phrase` value as a `Message` into `Greeter`.
 Neat!
 
-``` go
+```go
 // wire_gen.go
 
 func InitializeEvent(phrase string) (Event, error) {
@@ -337,7 +337,7 @@ how Wire's error messages help us correct any problems.
 For example, when writing our injector `InitializeEvent`, let's say we forget
 to add a provider for `Greeter`. Let's see what happens:
 
-``` go
+```go
 func InitializeEvent(phrase string) (Event, error) {
     wire.Build(NewEvent, NewMessage) // woops! We forgot to add a provider for Greeter
     return Event{}, nil
@@ -346,7 +346,7 @@ func InitializeEvent(phrase string) (Event, error) {
 
 Running `wire`, we see the following:
 
-``` shell
+```shell
 # wrapping the error across lines for readability
 $GOPATH/src/github.com/google/wire/_tutorial/wire.go:24:1:
 inject InitializeEvent: no provider found for github.com/google/wire/_tutorial.Greeter
@@ -363,7 +363,7 @@ we pass in a provider of `Greeter`, the problem will be solved.
 
 Alternatively, what happens if we provide one too many providers to `wire.Build`?
 
-``` go
+```go
 func NewEventNumber() int  {
     return 1
 }
@@ -377,7 +377,7 @@ func InitializeEvent(phrase string) (Event, error) {
 
 Wire helpfully tells us that we have an unused provider:
 
-``` shell
+```shell
 $GOPATH/src/github.com/google/wire/_tutorial/wire.go:24:1:
 inject InitializeEvent: unused provider "NewEventNumber"
 wire: generate failed
@@ -412,8 +412,8 @@ There is support for [binding interfaces][interfaces], [binding
 values][values], as well as support for [cleanup functions][cleanup]. See the
 [Advanced Features][advanced] section for more.
 
-[advanced]:   https://github.com/google/wire/blob/master/docs/guide.md#advanced-features
-[cleanup]:    https://github.com/google/wire/blob/master/docs/guide.md#cleanup-functions
+[advanced]: https://github.com/google/wire/blob/master/docs/guide.md#advanced-features
+[cleanup]: https://github.com/google/wire/blob/master/docs/guide.md#cleanup-functions
 [interfaces]: https://github.com/google/wire/blob/master/docs/guide.md#binding-interfaces
-[sets]:       https://github.com/google/wire/blob/master/docs/guide.md#defining-providers
-[values]:     https://github.com/google/wire/blob/master/docs/guide.md#binding-values
+[sets]: https://github.com/google/wire/blob/master/docs/guide.md#defining-providers
+[values]: https://github.com/google/wire/blob/master/docs/guide.md#binding-values

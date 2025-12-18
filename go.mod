@@ -1,4 +1,4 @@
-module github.com/google/wire
+module github.com/verystar/wire
 
 go 1.19
 

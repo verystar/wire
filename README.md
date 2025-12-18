@@ -1,7 +1,7 @@
 # Wire: Automated Initialization in Go
 
-[![Build Status](https://github.com/google/wire/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/google/wire/actions)
-[![godoc](https://godoc.org/github.com/google/wire?status.svg)][godoc]
+[![Build Status](https://github.com/verystar/wire/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/verystar/wire/actions)
+[![godoc](https://godoc.org/github.com/verystar/wire?status.svg)][godoc]
 
 > [!WARNING]
 > This project is no longer maintained.
@@ -19,15 +19,14 @@ For an overview, see the [introductory blog post][].
 
 [dependency injection]: https://en.wikipedia.org/wiki/Dependency_injection
 [introductory blog post]: https://blog.golang.org/wire
-[godoc]: https://godoc.org/github.com/google/wire
-[travis]: https://travis-ci.com/google/wire
+[godoc]: https://godoc.org/github.com/verystar/wire
 
 ## Installing
 
 Install Wire by running:
 
 ```shell
-go install github.com/google/wire/cmd/wire@latest
+go install github.com/verystar/wire/cmd/wire@latest
 ```
 
 and ensuring that `$GOPATH/bin` is added to your `$PATH`.
@@ -46,7 +45,7 @@ and ensuring that `$GOPATH/bin` is added to your `$PATH`.
 
 ## Project status
 
-As of version v0.3.0, Wire is *beta* and is considered feature complete. It
+As of version v0.3.0, Wire is _beta_ and is considered feature complete. It
 works well for the tasks it was designed to perform, and we prefer to keep it
 as simple as possible.
 

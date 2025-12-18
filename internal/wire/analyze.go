@@ -98,6 +98,7 @@ func solve(fset *token.FileSet, out types.Type, given *types.Tuple, set *Provide
 	// Start building the mapping of type to local variable of the given type.
 	// The first len(given) local variables are the given types.
 	index := new(typeutil.Map)
+	index.SetHasher(typeutil.MakeHasher())
 	for i := 0; i < given.Len(); i++ {
 		index.Set(given.At(i).Type(), i)
 	}

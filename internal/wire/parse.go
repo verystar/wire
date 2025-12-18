@@ -177,6 +177,10 @@ type Provider struct {
 	// HasErr reports whether the provider function can return an error.
 	// (Always false for structs.)
 	HasErr bool
+
+	// OutNamedObjs holds the declared named objects (if any) corresponding to
+	// the provider's output types as written in source.
+	OutNamedObjs []types.Object
 }
 
 // ProviderInput describes an incoming edge in the provider graph.
@@ -185,6 +189,10 @@ type ProviderInput struct {
 
 	// If the provider is a struct, FieldName will be the field name to set.
 	FieldName string
+	// Decl is the declared named object used in the provider's parameter
+	// list (if any). For example, if the parameter was declared as a named
+	// type or an alias, Decl will point to the corresponding *types.TypeName.
+	Decl types.Object
 }
 
 // Value describes a value expression.
@@ -493,7 +501,13 @@ func (oc *objectCache) get(obj types.Object) (val interface{}, errs []error) {
 		pkgPath := obj.Pkg().Path()
 		return oc.processExpr(oc.packages[pkgPath].TypesInfo, pkgPath, spec.Values[i], obj.Name())
 	case *types.Func:
-		return processFuncProvider(oc.fset, obj)
+		pkg := oc.packages[obj.Pkg().Path()]
+		var info *types.Info
+		if pkg != nil {
+			info = pkg.TypesInfo
+		}
+		decl := oc.funcDecl(obj)
+		return processFuncProvider(oc.fset, info, decl, obj)
 	default:
 		return nil, []error{fmt.Errorf("%v is not a provider or a provider set", obj)}
 	}
@@ -512,6 +526,28 @@ func (oc *objectCache) varDecl(obj *types.Var) *ast.ValueSpec {
 			for _, node := range path {
 				if spec, ok := node.(*ast.ValueSpec); ok {
 					return spec
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// funcDecl finds the declaration that defines the given function.
+func (oc *objectCache) funcDecl(fn *types.Func) *ast.FuncDecl {
+	pkg := oc.packages[fn.Pkg().Path()]
+	if pkg == nil {
+		return nil
+	}
+	pos := fn.Pos()
+	for _, f := range pkg.Syntax {
+		tokenFile := oc.fset.File(f.Pos())
+		base := tokenFile.Base()
+		if base <= int(pos) && int(pos) < base+tokenFile.Size() {
+			path, _ := astutil.PathEnclosingInterval(f, pos, pos)
+			for _, node := range path {
+				if decl, ok := node.(*ast.FuncDecl); ok {
+					return decl
 				}
 			}
 		}
@@ -673,7 +709,7 @@ func qualifiedIdentObject(info *types.Info, expr ast.Expr) types.Object {
 }
 
 // processFuncProvider creates a provider for a function declaration.
-func processFuncProvider(fset *token.FileSet, fn *types.Func) (*Provider, []error) {
+func processFuncProvider(fset *token.FileSet, info *types.Info, decl *ast.FuncDecl, fn *types.Func) (*Provider, []error) {
 	sig := fn.Type().(*types.Signature)
 	fpos := fn.Pos()
 	providerSig, err := funcOutput(sig)
@@ -681,6 +717,32 @@ func processFuncProvider(fset *token.FileSet, fn *types.Func) (*Provider, []erro
 		return nil, []error{notePosition(fset.Position(fpos), fmt.Errorf("wrong signature for provider %s: %v", fn.Name(), err))}
 	}
 	params := sig.Params()
+	var paramDecls []types.Object
+	if info != nil && decl != nil && decl.Type != nil && decl.Type.Params != nil {
+		paramDecls = make([]types.Object, params.Len())
+		idx := 0
+		for _, field := range decl.Type.Params.List {
+			var obj types.Object
+			if field.Type != nil {
+				if o := qualifiedIdentObject(info, field.Type); o != nil {
+					obj = o
+				}
+			}
+			if len(field.Names) == 0 {
+				if idx < len(paramDecls) {
+					paramDecls[idx] = obj
+					idx++
+				}
+				continue
+			}
+			for range field.Names {
+				if idx < len(paramDecls) {
+					paramDecls[idx] = obj
+					idx++
+				}
+			}
+		}
+	}
 	provider := &Provider{
 		Pkg:        fn.Pkg(),
 		Name:       fn.Name(),
@@ -695,8 +757,11 @@ func processFuncProvider(fset *token.FileSet, fn *types.Func) (*Provider, []erro
 		provider.Args[i] = ProviderInput{
 			Type: params.At(i).Type(),
 		}
+		if len(paramDecls) > i {
+			provider.Args[i].Decl = paramDecls[i]
+		}
 		for j := 0; j < i; j++ {
-			if types.Identical(provider.Args[i].Type, provider.Args[j].Type) {
+			if equalProviderParamType(provider.Args[i], provider.Args[j]) {
 				return nil, []error{notePosition(fset.Position(fpos), fmt.Errorf("provider has multiple parameters of type %s", types.TypeString(provider.Args[j].Type, nil)))}
 			}
 		}
@@ -753,6 +818,21 @@ func funcOutput(sig *types.Signature) (outputSignature, error) {
 	}
 }
 
+// equalProviderParamType reports whether two ProviderInput describe the same
+// parameter type for the purpose of rejecting duplicate parameter types in a
+// provider signature. It treats parameters with the same declared named object
+// as distinct even if their semantic types are identical (to allow alias
+// declarations to be considered separately when explicitly declared).
+func equalProviderParamType(a, b ProviderInput) bool {
+	// If both have declared objects and they are different objects, treat them
+	// as different.
+	if a.Decl != nil && b.Decl != nil {
+		return a.Decl == b.Decl
+	}
+	// Fallback to semantic identical check.
+	return types.Identical(a.Type, b.Type)
+}
+
 // processStructLiteralProvider creates a provider for a named struct type.
 // It produces pointer and non-pointer variants via two values in Out.
 //
@@ -768,7 +848,7 @@ func processStructLiteralProvider(fset *token.FileSet, typeName *types.TypeName)
 
 	pos := typeName.Pos()
 	fmt.Fprintf(os.Stderr,
-		"Warning: %v, see https://godoc.org/github.com/google/wire#Struct for more information.\n",
+		"Warning: %v, see https://godoc.org/github.com/verystar/wire#Struct for more information.\n",
 		notePosition(fset.Position(pos),
 			fmt.Errorf("using struct literal to inject %s is deprecated and will be removed in the next release; use wire.Struct instead",
 				typeName.Type())))
@@ -1139,7 +1219,7 @@ func isWireImport(path string) bool {
 	if i := strings.LastIndex(path, vendorPart); i != -1 && (i == 0 || path[i-1] == '/') {
 		path = path[i+len(vendorPart):]
 	}
-	return path == "github.com/google/wire"
+	return path == "github.com/verystar/wire"
 }
 
 func isProviderSetType(t types.Type) bool {

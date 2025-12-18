@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"go/token"
 	"go/types"
-	"io/ioutil"
 	"log"
 	"os"
 	"reflect"
@@ -32,8 +31,8 @@ import (
 	"strings"
 
 	"github.com/google/subcommands"
-	"github.com/google/wire/internal/wire"
 	"github.com/pmezard/go-difflib/difflib"
+	"github.com/verystar/wire/internal/wire"
 	"golang.org/x/tools/go/types/typeutil"
 )
 
@@ -89,7 +88,7 @@ func newGenerateOptions(headerFile string) (*wire.GenerateOptions, error) {
 	opts := new(wire.GenerateOptions)
 	if headerFile != "" {
 		var err error
-		opts.Header, err = ioutil.ReadFile(headerFile)
+		opts.Header, err = os.ReadFile(headerFile)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read header file %q: %v", headerFile, err)
 		}
@@ -235,7 +234,7 @@ func (cmd *diffCmd) Execute(ctx context.Context, f *flag.FlagSet, args ...interf
 			continue
 		}
 		// Assumes the current file is empty if we can't read it.
-		cur, _ := ioutil.ReadFile(out.OutputPath)
+		cur, _ := os.ReadFile(out.OutputPath)
 		if diff, err := difflib.GetUnifiedDiffString(difflib.UnifiedDiff{
 			A: difflib.SplitLines(string(cur)),
 			B: difflib.SplitLines(string(out.Content)),
