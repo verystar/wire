@@ -1,23 +1,8 @@
-example.com/foo/wire.go:x:y: multiple bindings for example.com/foo.Foo
-current:
-<- provider "provideFooAgain" (example.com/foo/foo.go:x:y)
-previous:
-<- provider "provideFoo" (example.com/foo/foo.go:x:y)
+example.com/foo/wire.go:x:y: inject inject: unused provider "main.provideFooAgain"
 
-example.com/foo/wire.go:x:y: multiple bindings for example.com/foo.Foo
-current:
-<- provider "provideFoo" (example.com/foo/foo.go:x:y)
-previous:
-<- provider "provideFoo" (example.com/foo/foo.go:x:y)
-<- provider set "Set" (example.com/foo/foo.go:x:y)
+example.com/foo/wire.go:x:y: inject injectFromSet: unused provider "main.provideFoo"
 
-example.com/foo/wire.go:x:y: multiple bindings for example.com/foo.Foo
-current:
-<- provider "provideFoo" (example.com/foo/foo.go:x:y)
-previous:
-<- provider "provideFoo" (example.com/foo/foo.go:x:y)
-<- provider set "Set" (example.com/foo/foo.go:x:y)
-<- provider set "SuperSet" (example.com/foo/foo.go:x:y)
+example.com/foo/wire.go:x:y: inject injectFromNestedSet: unused provider "main.provideFoo"
 
 example.com/foo/foo.go:x:y: SetWithDuplicateBindings has multiple bindings for example.com/foo.Foo
 current:

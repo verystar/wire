@@ -10,6 +10,7 @@ package main
 
 func inject(s string) Pair {
 	message := NewMessage(s)
-	pair := NewPair(message, message)
+	mainMessage := NewMessage2(s)
+	pair := NewPair(message, mainMessage)
 	return pair
 }

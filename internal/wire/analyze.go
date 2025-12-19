@@ -90,6 +90,22 @@ type call struct {
 	ptrToField bool
 }
 
+func sameProvider(a, b ProvidedType) bool {
+	if a.IsProvider() && b.IsProvider() {
+		return a.Provider() == b.Provider()
+	}
+	if a.IsValue() && b.IsValue() {
+		return a.Value() == b.Value()
+	}
+	if a.IsField() && b.IsField() {
+		return a.Field() == b.Field()
+	}
+	if a.IsArg() && b.IsArg() {
+		return a.Arg().Index == b.Arg().Index
+	}
+	return false
+}
+
 // solve finds the sequence of calls required to produce an output type
 // with an optional set of provided inputs.
 func solve(fset *token.FileSet, out types.Type, given *types.Tuple, set *ProviderSet) ([]call, []error) {
@@ -99,6 +115,9 @@ func solve(fset *token.FileSet, out types.Type, given *types.Tuple, set *Provide
 	// The first len(given) local variables are the given types.
 	index := new(typeutil.Map)
 	index.SetHasher(typeutil.MakeHasher())
+	// indexByDecl maps a concrete type to a map of declared type qualified name to local variable index.
+	indexByDecl := new(typeutil.Map)
+	indexByDecl.SetHasher(typeutil.MakeHasher())
 	for i := 0; i < given.Len(); i++ {
 		index.Set(given.At(i).Type(), i)
 	}
@@ -111,20 +130,74 @@ func solve(fset *token.FileSet, out types.Type, given *types.Tuple, set *Provide
 	var used []*providerSetSrc
 	var calls []call
 	type frame struct {
-		t    types.Type
-		from types.Type
-		up   *frame
+		t        types.Type
+		from     types.Type
+		up       *frame
+		declName string
 	}
 	stk := []frame{{t: out}}
+
+	updateIndex := func(t types.Type, declName string, pt ProvidedType) {
+		valIndex := given.Len() + len(calls)
+
+		setIndex := func(dn string) {
+			if dn != "" {
+				m := indexByDecl.At(t)
+				var mp map[string]int
+				if m == nil {
+					mp = make(map[string]int)
+					indexByDecl.Set(t, mp)
+				} else {
+					mp = m.(map[string]int)
+				}
+				if _, ok := mp[dn]; !ok {
+					mp[dn] = valIndex
+				}
+			} else {
+				if index.At(t) == nil {
+					index.Set(t, valIndex)
+				}
+			}
+		}
+
+		setIndex(declName)
+
+		// Aliases
+		if defaultPt := set.providerMap.At(t); defaultPt != nil {
+			dpt := defaultPt.(*ProvidedType)
+			if sameProvider(pt, *dpt) {
+				setIndex("")
+			}
+		}
+		if set.declProviderMap != nil {
+			if m := set.declProviderMap.At(t); m != nil {
+				mp := m.(map[string]*ProvidedType)
+				for dn, dpt := range mp {
+					if sameProvider(pt, *dpt) {
+						setIndex(dn)
+					}
+				}
+			}
+		}
+	}
+
 dfs:
 	for len(stk) > 0 {
 		curr := stk[len(stk)-1]
 		stk = stk[:len(stk)-1]
-		if index.At(curr.t) != nil {
+
+		// Check visited by declared name if applicable.
+		if curr.declName != "" {
+			if m := indexByDecl.At(curr.t); m != nil {
+				if _, ok := m.(map[string]int)[curr.declName]; ok {
+					continue
+				}
+			}
+		} else if index.At(curr.t) != nil {
 			continue
 		}
 
-		pv := set.For(curr.t)
+		pv := set.forWithDeclName(curr.t, curr.declName)
 		if pv.IsNil() {
 			if curr.from == nil {
 				ec.add(fmt.Errorf("no provider found for %s, output of injector", types.TypeString(curr.t, nil)))
@@ -141,6 +214,13 @@ dfs:
 			continue
 		}
 		src := set.srcMap.At(curr.t).(*providerSetSrc)
+		if curr.declName != "" && set.declSrcMap != nil {
+			if m := set.declSrcMap.At(curr.t); m != nil {
+				if s := m.(map[string]*providerSetSrc)[curr.declName]; s != nil {
+					src = s
+				}
+			}
+		}
 		used = append(used, src)
 		if concrete := pv.Type(); !types.Identical(concrete, curr.t) {
 			// Interface binding does not create a call.
@@ -153,8 +233,21 @@ dfs:
 			continue
 		}
 
-		switch pv := set.For(curr.t); {
+		switch pv := set.forWithDeclName(curr.t, curr.declName); {
 		case pv.IsArg():
+			if curr.declName != "" {
+				if v := index.At(curr.t); v != nil {
+					m := indexByDecl.At(curr.t)
+					var mp map[string]int
+					if m == nil {
+						mp = make(map[string]int)
+						indexByDecl.Set(curr.t, mp)
+					} else {
+						mp = m.(map[string]int)
+					}
+					mp[curr.declName] = v.(int)
+				}
+			}
 			// Continue, already added to stk.
 		case pv.IsProvider():
 			p := pv.Provider()
@@ -164,13 +257,35 @@ dfs:
 			visitedArgs := true
 			for i := len(p.Args) - 1; i >= 0; i-- {
 				a := p.Args[i]
-				if index.At(a.Type) == nil {
+				var visited bool
+				if a.Decl != nil {
+					if m := indexByDecl.At(a.Type); m != nil {
+						var key string
+						if a.Decl.Pkg() != nil {
+							key = a.Decl.Pkg().Path() + "." + a.Decl.Name()
+						} else {
+							key = a.Decl.Name()
+						}
+						_, visited = m.(map[string]int)[key]
+					}
+				} else {
+					visited = index.At(a.Type) != nil
+				}
+				if !visited {
 					if visitedArgs {
 						// Make sure to re-visit this type after visiting all arguments.
 						stk = append(stk, curr)
 						visitedArgs = false
 					}
-					stk = append(stk, frame{t: a.Type, from: curr.t, up: &curr})
+				var dn string
+					if a.Decl != nil {
+						if a.Decl.Pkg() != nil {
+							dn = a.Decl.Pkg().Path() + "." + a.Decl.Name()
+						} else {
+							dn = a.Decl.Name()
+						}
+					}
+					stk = append(stk, frame{t: a.Type, from: curr.t, up: &curr, declName: dn})
 				}
 			}
 			if !visitedArgs {
@@ -180,14 +295,29 @@ dfs:
 			ins := make([]types.Type, len(p.Args))
 			for i := range p.Args {
 				ins[i] = p.Args[i].Type
-				v := index.At(p.Args[i].Type)
+				var v interface{}
+				if p.Args[i].Decl != nil {
+					if m := indexByDecl.At(p.Args[i].Type); m != nil {
+						var key string
+						if p.Args[i].Decl.Pkg() != nil {
+							key = p.Args[i].Decl.Pkg().Path() + "." + p.Args[i].Decl.Name()
+						} else {
+							key = p.Args[i].Decl.Name()
+						}
+						v = m.(map[string]int)[key]
+					}
+				}
+				if v == nil {
+					v = index.At(p.Args[i].Type)
+				}
 				if v == errAbort {
 					index.Set(curr.t, errAbort)
 					continue dfs
 				}
 				args[i] = v.(int)
 			}
-			index.Set(curr.t, given.Len()+len(calls))
+			// Assign local variable index for produced type considering declaration name.
+			updateIndex(curr.t, curr.declName, pv)
 			kind := funcProviderCall
 			fieldNames := []string(nil)
 			if p.IsStruct {
@@ -210,7 +340,7 @@ dfs:
 			})
 		case pv.IsValue():
 			v := pv.Value()
-			index.Set(curr.t, given.Len()+len(calls))
+			updateIndex(curr.t, curr.declName, pv)
 			calls = append(calls, call{
 				kind:          valueExpr,
 				out:           curr.t,
@@ -225,7 +355,7 @@ dfs:
 				stk = append(stk, curr, frame{t: f.Parent, from: curr.t, up: &curr})
 				continue
 			}
-			index.Set(curr.t, given.Len()+len(calls))
+			updateIndex(curr.t, curr.declName, pv)
 			v := index.At(f.Parent)
 			if v == errAbort {
 				index.Set(curr.t, errAbort)
@@ -373,11 +503,96 @@ func buildProviderMap(fset *token.FileSet, hasher typeutil.Hasher, set *Provider
 		src := &providerSetSrc{Provider: p}
 		for _, typ := range p.Out {
 			if prevSrc := srcMap.At(typ); prevSrc != nil {
+				// Allow multiple providers for the same concrete type when they differ
+				// by declared output type name; record in declProviderMap for selection.
+				if set.declProviderMap != nil {
+					m := set.declProviderMap.At(typ)
+				var mp map[string]*ProvidedType
+				var ms map[string]*providerSetSrc
+				ms_iface := set.declSrcMap.At(typ)
+				if ms_iface == nil {
+					ms = make(map[string]*providerSetSrc)
+					set.declSrcMap.Set(typ, ms)
+				} else {
+					ms = ms_iface.(map[string]*providerSetSrc)
+				}
+
+				if m == nil {
+					mp = make(map[string]*ProvidedType)
+					set.declProviderMap.Set(typ, mp)
+					// Seed with previous provider if it has a declared name.
+					prev := prevSrc.(*providerSetSrc)
+					if prev.Provider != nil && len(prev.Provider.OutNamedObjs) > 0 {
+						q := prev.Provider.OutNamedObjs[0]
+						if q != nil {
+							var key string
+							if q.Pkg() != nil {
+								key = q.Pkg().Path() + "." + q.Name()
+							} else {
+								key = q.Name()
+							}
+							if _, ok := mp[key]; !ok {
+								mp[key] = &ProvidedType{t: typ, p: prev.Provider}
+								ms[key] = prev
+							}
+						}
+					}
+				} else {
+					mp = m.(map[string]*ProvidedType)
+				}
+				if len(p.OutNamedObjs) > 0 {
+					q := p.OutNamedObjs[0]
+					if q != nil {
+						var key string
+						if q.Pkg() != nil {
+							key = q.Pkg().Path() + "." + q.Name()
+						} else {
+							key = q.Name()
+						}
+						mp[key] = &ProvidedType{t: typ, p: p}
+						ms[key] = src
+					}
+					// Do not treat as conflict error; keep existing providerMap/srcMap entries.
+					continue
+				}
+				}
+				// If no declared name available, treat as conflict.
 				ec.add(bindingConflictError(fset, typ, set, src, prevSrc.(*providerSetSrc)))
 				continue
 			}
 			providerMap.Set(typ, &ProvidedType{t: typ, p: p})
 			srcMap.Set(typ, src)
+			// Record declared output for selection.
+			if len(p.OutNamedObjs) > 0 && set.declProviderMap != nil {
+				m := set.declProviderMap.At(typ)
+				var mp map[string]*ProvidedType
+				var ms map[string]*providerSetSrc
+				ms_iface := set.declSrcMap.At(typ)
+				if ms_iface == nil {
+					ms = make(map[string]*providerSetSrc)
+					set.declSrcMap.Set(typ, ms)
+				} else {
+					ms = ms_iface.(map[string]*providerSetSrc)
+				}
+
+				if m == nil {
+					mp = make(map[string]*ProvidedType)
+					set.declProviderMap.Set(typ, mp)
+				} else {
+					mp = m.(map[string]*ProvidedType)
+				}
+				q := p.OutNamedObjs[0]
+				if q != nil {
+					var key string
+					if q.Pkg() != nil {
+						key = q.Pkg().Path() + "." + q.Name()
+					} else {
+						key = q.Name()
+					}
+					mp[key] = &ProvidedType{t: typ, p: p}
+					ms[key] = src
+				}
+			}
 		}
 	}
 	for _, v := range set.Values {
@@ -430,73 +645,113 @@ func buildProviderMap(fset *token.FileSet, hasher typeutil.Hasher, set *Provider
 	return providerMap, srcMap, nil
 }
 
-func verifyAcyclic(providerMap *typeutil.Map, hasher typeutil.Hasher) []error {
+func verifyAcyclic(set *ProviderSet, hasher typeutil.Hasher) []error {
 	// We must visit every provider type inside provider map, but we don't
 	// have a well-defined starting point and there may be several
 	// distinct graphs. Thus, we start a depth-first search at every
 	// provider, but keep a shared record of visited providers to avoid
 	// duplicating work.
-	visited := new(typeutil.Map) // to bool
+	visited := new(typeutil.Map) // to map[string]bool (declName -> visited)
 	visited.SetHasher(hasher)
 	ec := new(errorCollector)
+
+	type graphNode struct {
+		t        types.Type
+		declName string
+	}
+
+	// Collect all roots
+	var roots []graphNode
+	set.providerMap.Iterate(func(t types.Type, v interface{}) {
+		roots = append(roots, graphNode{t: t, declName: ""})
+	})
+	if set.declProviderMap != nil {
+		set.declProviderMap.Iterate(func(t types.Type, v interface{}) {
+			m := v.(map[string]*ProvidedType)
+			for dn := range m {
+				roots = append(roots, graphNode{t: t, declName: dn})
+			}
+		})
+	}
+
 	// Sort output types so that errors about cycles are consistent.
-	outputs := providerMap.Keys()
-	sort.Slice(outputs, func(i, j int) bool { return types.TypeString(outputs[i], nil) < types.TypeString(outputs[j], nil) })
-	for _, root := range outputs {
+	sort.Slice(roots, func(i, j int) bool {
+		si := types.TypeString(roots[i].t, nil) + roots[i].declName
+		sj := types.TypeString(roots[j].t, nil) + roots[j].declName
+		return si < sj
+	})
+
+	for _, root := range roots {
 		// Depth-first search using a stack of trails through the provider map.
-		stk := [][]types.Type{{root}}
+		stk := [][]graphNode{{root}}
 		for len(stk) > 0 {
 			curr := stk[len(stk)-1]
 			stk = stk[:len(stk)-1]
 			head := curr[len(curr)-1]
-			if v, _ := visited.At(head).(bool); v {
+
+			m := visited.At(head.t)
+			if m == nil {
+				m = make(map[string]bool)
+				visited.Set(head.t, m)
+			}
+			mm := m.(map[string]bool)
+			if mm[head.declName] {
 				continue
 			}
-			visited.Set(head, true)
-			x := providerMap.At(head)
-			if x == nil {
+			mm[head.declName] = true
+
+			pt := set.forWithDeclName(head.t, head.declName)
+			if pt.IsNil() {
 				// Leaf: input.
 				continue
 			}
-			pt := x.(*ProvidedType)
+
+			var args []graphNode
 			switch {
 			case pt.IsValue():
 				// Leaf: values do not have dependencies.
 			case pt.IsArg():
 				// Injector arguments do not have dependencies.
 			case pt.IsProvider() || pt.IsField():
-				var args []types.Type
 				if pt.IsProvider() {
 					for _, arg := range pt.Provider().Args {
-						args = append(args, arg.Type)
+						dn := ""
+						if arg.Decl != nil {
+							if arg.Decl.Pkg() != nil {
+								dn = arg.Decl.Pkg().Path() + "." + arg.Decl.Name()
+							} else {
+								dn = arg.Decl.Name()
+							}
+						}
+						args = append(args, graphNode{t: arg.Type, declName: dn})
 					}
 				} else {
-					args = append(args, pt.Field().Parent)
+					args = append(args, graphNode{t: pt.Field().Parent, declName: ""})
 				}
 				for _, a := range args {
 					hasCycle := false
 					for i, b := range curr {
-						if types.Identical(a, b) {
+						if types.Identical(a.t, b.t) && a.declName == b.declName {
 							sb := new(strings.Builder)
-							fmt.Fprintf(sb, "cycle for %s:\n", types.TypeString(a, nil))
+							fmt.Fprintf(sb, "cycle for %s:\n", types.TypeString(a.t, nil))
 							for j := i; j < len(curr); j++ {
-								t := providerMap.At(curr[j]).(*ProvidedType)
+								t := set.forWithDeclName(curr[j].t, curr[j].declName)
 								if t.IsProvider() {
 									p := t.Provider()
-									fmt.Fprintf(sb, "%s (%s.%s) ->\n", types.TypeString(curr[j], nil), p.Pkg.Path(), p.Name)
+									fmt.Fprintf(sb, "%s (%s.%s) ->\n", types.TypeString(curr[j].t, nil), p.Pkg.Path(), p.Name)
 								} else {
 									p := t.Field()
-									fmt.Fprintf(sb, "%s (%s.%s) ->\n", types.TypeString(curr[j], nil), p.Parent, p.Name)
+									fmt.Fprintf(sb, "%s (%s.%s) ->\n", types.TypeString(curr[j].t, nil), p.Parent, p.Name)
 								}
 							}
-							fmt.Fprintf(sb, "%s", types.TypeString(a, nil))
+							fmt.Fprintf(sb, "%s", types.TypeString(a.t, nil))
 							ec.add(errors.New(sb.String()))
 							hasCycle = true
 							break
 						}
 					}
 					if !hasCycle {
-						next := append(append([]types.Type(nil), curr...), a)
+						next := append(append([]graphNode(nil), curr...), a)
 						stk = append(stk, next)
 					}
 				}

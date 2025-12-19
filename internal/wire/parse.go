@@ -113,6 +113,15 @@ type ProviderSet struct {
 	// srcMap maps from provided type to a *providerSetSrc capturing the
 	// Provider, Binding, Value, or Import that provided the type.
 	srcMap *typeutil.Map
+
+	// declProviderMap maps from provided concrete type (key) to a map keyed by
+	// declared type qualified name (pkgpath.Name) to a *ProvidedType.
+	// This allows distinguishing providers of the same concrete type when their
+	// declared output type names differ (e.g., type alias vs new type).
+	declProviderMap *typeutil.Map
+
+	// declSrcMap is similar to declProviderMap but for sources.
+	declSrcMap *typeutil.Map
 }
 
 // Outputs returns a new slice containing the set of possible types the
@@ -128,6 +137,37 @@ func (set *ProviderSet) For(t types.Type) ProvidedType {
 		return ProvidedType{}
 	}
 	return *pt.(*ProvidedType)
+}
+
+// forWithDeclName returns a ProvidedType for the given concrete type, preferring
+// a provider whose declared output type qualified name matches declName, if any.
+func (set *ProviderSet) forWithDeclName(t types.Type, declName string) ProvidedType {
+	if declName != "" && set.declProviderMap != nil {
+		if m := set.declProviderMap.At(t); m != nil {
+			mp := m.(map[string]*ProvidedType)
+			if pv := mp[declName]; pv != nil {
+				return *pv
+			}
+			// Fallback: search among all providers for matching declared output name.
+			for _, p := range set.Providers {
+				if len(p.Out) > 0 && types.Identical(p.Out[0], t) && len(p.OutNamedObjs) > 0 && p.OutNamedObjs[0] != nil {
+					var key string
+					if p.OutNamedObjs[0].Pkg() != nil {
+						key = p.OutNamedObjs[0].Pkg().Path() + "." + p.OutNamedObjs[0].Name()
+					} else {
+						key = p.OutNamedObjs[0].Name()
+					}
+					if key == declName {
+						return ProvidedType{t: t, p: p}
+					}
+				}
+			}
+			for _, pv := range mp {
+				return *pv
+			}
+		}
+	}
+	return set.For(t)
 }
 
 // An IfaceBinding declares that a type should be used to satisfy inputs
@@ -630,11 +670,15 @@ func (oc *objectCache) processNewSet(info *types.Info, pkgPath string, call *ast
 	// Assumes that call.Fun is wire.NewSet or wire.Build.
 
 	pset := &ProviderSet{
-		Pos:          call.Pos(),
-		InjectorArgs: args,
-		PkgPath:      pkgPath,
-		VarName:      varName,
+		Pos:             call.Pos(),
+		InjectorArgs:    args,
+		PkgPath:         pkgPath,
+		VarName:         varName,
+		declProviderMap: new(typeutil.Map),
+		declSrcMap:      new(typeutil.Map),
 	}
+	pset.declProviderMap.SetHasher(oc.hasher)
+	pset.declSrcMap.SetHasher(oc.hasher)
 	ec := new(errorCollector)
 	for _, arg := range call.Args {
 		item, errs := oc.processExpr(info, pkgPath, arg, "")
@@ -665,7 +709,7 @@ func (oc *objectCache) processNewSet(info *types.Info, pkgPath string, call *ast
 	if len(errs) > 0 {
 		return nil, errs
 	}
-	if errs := verifyAcyclic(pset.providerMap, oc.hasher); len(errs) > 0 {
+	if errs := verifyAcyclic(pset, oc.hasher); len(errs) > 0 {
 		return nil, errs
 	}
 	return pset, nil
@@ -752,6 +796,12 @@ func processFuncProvider(fset *token.FileSet, info *types.Info, decl *ast.FuncDe
 		Out:        []types.Type{providerSig.out},
 		HasCleanup: providerSig.cleanup,
 		HasErr:     providerSig.err,
+	}
+	// Capture declared output type object (if available).
+	if info != nil && decl != nil && decl.Type != nil && decl.Type.Results != nil && len(decl.Type.Results.List) > 0 {
+		if o := qualifiedIdentObject(info, decl.Type.Results.List[0].Type); o != nil {
+			provider.OutNamedObjs = []types.Object{o}
+		}
 	}
 	for i := 0; i < params.Len(); i++ {
 		provider.Args[i] = ProviderInput{
