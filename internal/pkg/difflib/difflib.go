@@ -545,9 +545,13 @@ type UnifiedDiff struct {
 // times.  Any or all of these may be specified using strings for
 // 'fromfile', 'tofile', 'fromfiledate', and 'tofiledate'.
 // The modification times are normally expressed in the ISO 8601 format.
-func WriteUnifiedDiff(writer io.Writer, diff UnifiedDiff) error {
+func WriteUnifiedDiff(writer io.Writer, diff UnifiedDiff) (err error) {
 	buf := bufio.NewWriter(writer)
-	defer buf.Flush()
+	defer func() {
+		if flushErr := buf.Flush(); err == nil {
+			err = flushErr
+		}
+	}()
 	wf := func(format string, args ...interface{}) error {
 		_, err := fmt.Fprintf(buf, format, args...)
 		return err
@@ -660,10 +664,13 @@ type ContextDiff UnifiedDiff
 // strings for diff.FromFile, diff.ToFile, diff.FromDate, diff.ToDate.
 // The modification times are normally expressed in the ISO 8601 format.
 // If not specified, the strings default to blanks.
-func WriteContextDiff(writer io.Writer, diff ContextDiff) error {
+func WriteContextDiff(writer io.Writer, diff ContextDiff) (diffErr error) {
 	buf := bufio.NewWriter(writer)
-	defer buf.Flush()
-	var diffErr error
+	defer func() {
+		if flushErr := buf.Flush(); diffErr == nil {
+			diffErr = flushErr
+		}
+	}()
 	wf := func(format string, args ...interface{}) {
 		_, err := fmt.Fprintf(buf, format, args...)
 		if diffErr == nil && err != nil {

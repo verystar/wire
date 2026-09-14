@@ -78,7 +78,7 @@ func TestWire(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer os.RemoveAll(gopath)
+			defer func() { _ = os.RemoveAll(gopath) }()
 			gopath, err = filepath.EvalSymlinks(gopath)
 			if err != nil {
 				t.Fatal(err)
