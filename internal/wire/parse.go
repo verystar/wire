@@ -523,7 +523,7 @@ func (oc *objectCache) varDecl(obj *types.Var) *ast.ValueSpec {
 // *Provider, an *IfaceBinding, a *ProviderSet, a *Value or a []*Field.
 func (oc *objectCache) processExpr(info *types.Info, pkgPath string, expr ast.Expr, varName string) (interface{}, []error) {
 	exprPos := oc.fset.Position(expr.Pos())
-	expr = astutil.Unparen(expr)
+	expr = ast.Unparen(expr)
 	if obj := qualifiedIdentObject(info, expr); obj != nil {
 		item, errs := oc.get(obj)
 		return item, mapErrors(errs, func(err error) error {
