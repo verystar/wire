@@ -956,5 +956,5 @@ func accessibleFrom(info *types.Info, node ast.Node, wantPkg string) error {
 
 var (
 	errorType   = types.Universe.Lookup("error").Type()
-	cleanupType = types.NewSignature(nil, nil, nil, false)
+	cleanupType = types.NewSignatureType(nil, nil, nil, nil, nil, false)
 )
