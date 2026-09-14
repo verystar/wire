@@ -22,7 +22,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/google/wire"
+	"github.com/verystar/wire"
 )
 
 func main() {

@@ -18,7 +18,7 @@ package main
 
 import (
 	"example.com/bar"
-	"github.com/google/wire"
+	"github.com/verystar/wire"
 )
 
 func injectedMessage() string {

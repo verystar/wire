@@ -17,7 +17,7 @@
 package main
 
 import (
-	"github.com/google/wire"
+	"github.com/verystar/wire"
 )
 
 /* blockComment returns Foo and has a /*- style doc comment */

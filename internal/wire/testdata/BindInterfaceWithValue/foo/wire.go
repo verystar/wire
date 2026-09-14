@@ -20,7 +20,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/google/wire"
+	"github.com/verystar/wire"
 )
 
 func inject() io.Writer {

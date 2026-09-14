@@ -17,7 +17,7 @@
 package main
 
 import (
-	"github.com/google/wire"
+	"github.com/verystar/wire"
 )
 
 func injectedMessage(t title, lines ...string) string {
