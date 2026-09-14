@@ -43,7 +43,7 @@ type providerSetSrc struct {
 }
 
 // description returns a string describing the source of p, including line numbers.
-func (p *providerSetSrc) description(fset *token.FileSet, typ types.Type) string {
+func (p *providerSetSrc) description(fset *token.FileSet, _ types.Type) string {
 	quoted := func(s string) string {
 		if s == "" {
 			return ""

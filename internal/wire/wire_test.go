@@ -29,7 +29,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/google/go-cmp/cmp"
+	"github.com/verystar/wire/internal/pkg/difflib"
 )
 
 var record = flag.Bool("record", false, "whether to run tests against cloud resources and record the interactions")
@@ -116,7 +116,7 @@ func TestWire(t *testing.T) {
 						t.Fatalf("failed to write wire_errs.txt file: %v", err)
 					}
 				} else {
-					if diff := cmp.Diff(gotErrStrings, test.wantWireErrorStrings); diff != "" {
+					if diff := diffStrings(strings.Join(gotErrStrings, "\n\n"), strings.Join(test.wantWireErrorStrings, "\n\n")); diff != "" {
 						t.Errorf("Errors didn't match expected errors from wire_errors.txt:\n%s", diff)
 					}
 				}
@@ -156,12 +156,27 @@ func TestWire(t *testing.T) {
 				// Generate function.
 				if !bytes.Equal(gen.Content, test.wantWireOutput) {
 					gotS, wantS := string(gen.Content), string(test.wantWireOutput)
-					diff := cmp.Diff(strings.Split(gotS, "\n"), strings.Split(wantS, "\n"))
+					diff := diffStrings(gotS, wantS)
 					t.Fatalf("wire output differs from golden file. If this change is expected, run with -record to update the wire_gen.go file.\n*** got:\n%s\n\n*** want:\n%s\n\n*** diff:\n%s", gotS, wantS, diff)
 				}
 			}
 		})
 	}
+}
+
+// diffStrings returns a unified diff of got and want, or "" if they are equal.
+func diffStrings(got, want string) string {
+	diff, err := difflib.GetUnifiedDiffString(difflib.UnifiedDiff{
+		A:        difflib.SplitLines(got),
+		B:        difflib.SplitLines(want),
+		FromFile: "got",
+		ToFile:   "want",
+		Context:  3,
+	})
+	if err != nil {
+		return fmt.Sprintf("(failed to compute diff: %v)", err)
+	}
+	return diff
 }
 
 func goBuildCheck(goToolPath, gopath string, test *testCase) error {
@@ -187,7 +202,7 @@ func goBuildCheck(goToolPath, gopath string, test *testCase) error {
 	}
 	if !bytes.Equal(out, test.wantProgramOutput) {
 		gotS, wantS := string(out), string(test.wantProgramOutput)
-		diff := cmp.Diff(strings.Split(gotS, "\n"), strings.Split(wantS, "\n"))
+		diff := diffStrings(gotS, wantS)
 		return fmt.Errorf("compiled program output doesn't match:\n*** got:\n%s\n\n*** want:\n%s\n\n*** diff:\n%s", gotS, wantS, diff)
 	}
 	return nil
