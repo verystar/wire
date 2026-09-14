@@ -410,7 +410,7 @@ func gather(info *wire.Info, key wire.ProviderSetID) (_ []outGroup, imports map[
 			continue
 		}
 		visited[curr] = struct{}{}
-		if curr.VarName != "" && !(curr.PkgPath == key.ImportPath && curr.VarName == key.VarName) {
+		if curr.VarName != "" && (curr.PkgPath != key.ImportPath || curr.VarName != key.VarName) {
 			imports[formatProviderSetName(curr.PkgPath, curr.VarName)] = struct{}{}
 		}
 		next = append(next, curr.Imports...)
