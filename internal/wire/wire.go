@@ -479,7 +479,7 @@ func (g *gen) rewritePkgRefs(info *types.Info, node ast.Node) ast.Node {
 		// Rename any symbols defined within rewritePkgRefs's node that conflict
 		// with any symbols in the generated file.
 		objName := obj.Name()
-		if pos := obj.Pos(); pos < start || end <= pos || !(g.nameInFileScope(objName) || inNewNames(objName)) {
+		if pos := obj.Pos(); pos < start || end <= pos || (!g.nameInFileScope(objName) && !inNewNames(objName)) {
 			return true
 		}
 		newName := disambiguate(objName, func(n string) bool {

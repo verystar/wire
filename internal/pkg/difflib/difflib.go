@@ -434,7 +434,7 @@ func (m *SequenceMatcher) GetGroupedOpCodes(n int) [][]OpCode {
 		}
 		group = append(group, OpCode{c.Tag, i1, i2, j1, j2})
 	}
-	if len(group) > 0 && !(len(group) == 1 && group[0].Tag == 'e') {
+	if len(group) > 0 && (len(group) != 1 || group[0].Tag != 'e') {
 		groups = append(groups, group)
 	}
 	return groups
