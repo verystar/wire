@@ -122,7 +122,7 @@ four`
 		Context:  3,
 	}
 	result, _ := GetUnifiedDiffString(diff)
-	fmt.Println(strings.Replace(result, "\t", " ", -1))
+	fmt.Println(strings.ReplaceAll(result, "\t", " "))
 	// Output:
 	// --- Original 2005-01-26 23:30:50
 	// +++ Current 2010-04-02 10:20:52
@@ -154,7 +154,7 @@ four`
 		Eol:      "\n",
 	}
 	result, _ := GetContextDiffString(diff)
-	fmt.Print(strings.Replace(result, "\t", " ", -1))
+	fmt.Print(strings.ReplaceAll(result, "\t", " "))
 	// Output:
 	// *** Original
 	// --- Current
@@ -190,7 +190,7 @@ four`
 		Eol:      "\n",
 	}
 	result, _ := GetContextDiffString(diff)
-	fmt.Print(strings.Replace(result, "\t", " ", -1))
+	fmt.Print(strings.ReplaceAll(result, "\t", " "))
 	// Output:
 	// *** Original
 	// --- Current

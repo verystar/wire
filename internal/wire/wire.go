@@ -828,7 +828,7 @@ func typeVariableName(t types.Type, defaultName string, transform func(string) s
 		// Provide an alternate name prefixed with the package name if possible.
 		// E.g., in case of collisions, we'll use "fooCfg" instead of "cfg2".
 		if pkg := obj.Pkg(); pkg != nil && pkg.Name() != "" {
-			names = append(names, fmt.Sprintf("%s%s", pkg.Name(), strings.Title(obj.Name())))
+			names = append(names, fmt.Sprintf("%s%s", pkg.Name(), export(obj.Name())))
 		}
 	}
 

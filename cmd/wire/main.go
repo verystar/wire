@@ -603,6 +603,6 @@ func formatProviderSetName(importPath, varName string) string {
 
 func logErrors(errs []error) {
 	for _, err := range errs {
-		log.Println(strings.Replace(err.Error(), "\n", "\n\t", -1))
+		log.Println(strings.ReplaceAll(err.Error(), "\n", "\n\t"))
 	}
 }

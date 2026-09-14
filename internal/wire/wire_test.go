@@ -394,7 +394,7 @@ func scrubError(gopath string, s string) string {
 		// Write out file name and advance scrub position.
 		file := s[fileStart:fileEnd]
 		if os.PathSeparator != '/' {
-			file = strings.Replace(file, string(os.PathSeparator), "/", -1)
+			file = strings.ReplaceAll(file, string(os.PathSeparator), "/")
 		}
 		sb.WriteString(s[:start])
 		sb.WriteString(file)
